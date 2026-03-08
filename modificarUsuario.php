@@ -1,10 +1,10 @@
 <?php
-require_once 'conexionpg.php';
+require_once 'conexion.php'; 
 
-$mostrar_lista=TRUE;
-$mensaje="";
+$mostrar_lista = true;
+$mensaje = "";
 
-// Logica de Actualizacion
+// 1. Lógica de Actualización (UPDATE)
 if (isset($_POST['guardar'])) {
     $id = $_POST['id_usuario'];
     $nombre_usuario = $_POST['nombre_usuario'];
@@ -12,45 +12,57 @@ if (isset($_POST['guardar'])) {
     $e_mail = $_POST['e_mail'];
     $tipo_usuario = $_POST['tipo_usuario'];
 
-    //consulta SQL para actualizar
-    $sql_update = "UPDATE usuarios SET nombre_usuario= '$nombre_usuario', contraseña='$contraseña', e_mail='$e_mail', tipo_usuario='$tipo_usuario' WHERE id_usuario='$id'";
-
-    if (pg_query($conectar, $sql_update)) {
-        $mensaje = "Usuario actualizado correctamente.";
-    } else {
-        $mensaje = "Error al actualizar: " . pg_last_error($conectar);
+    try {
+        $sql_update = "UPDATE usuarios SET nombre_usuario = ?, contraseña = ?, e_mail = ?, tipo_usuario = ? WHERE id_usuario = ?";
+        $stmt = $conn->prepare($sql_update);
+        if ($stmt->execute([$nombre_usuario, $contraseña, $e_mail, $tipo_usuario, $id])) {
+            $mensaje = "Usuario actualizado correctamente.";
+        }
+    } catch (PDOException $e) {
+        $mensaje = "Error al actualizar: " . $e->getMessage();
     }
 }
 
-// Logica para mostrar el formulario de edicion
+// 2. Lógica para mostrar el formulario de edición (SELECT de uno solo)
 if (isset($_POST['modificar'])) {
-    if(isset($_POST['ids']) && count($_POST['ids']) == 1) {
+    if (isset($_POST['ids']) && count($_POST['ids']) == 1) {
         $id_editar = $_POST['ids'][0];
 
-        $sql_buscar = "SELECT * FROM usuarios WHERE id_usuario='$id_editar'";
-        $resultado = pg_query($conectar, $sql_buscar);
+        try {
+            $sql_buscar = "SELECT * FROM usuarios WHERE id_usuario = ?";
+            $stmt = $conn->prepare($sql_buscar);
+            $stmt->execute([$id_editar]);
+            $usuario = $stmt->fetch(PDO::FETCH_ASSOC);
 
-        if ($usuario = pg_fetch_array($resultado)) {
-            $mostrar_lista = false; //ocultar lista para mostrar el formulario
-        } else {
-            $mensaje = "Error al recuperar los datos del usuario.";
+            if ($usuario) {
+                $mostrar_lista = false; // Ocultamos la tabla
+            } else {
+                $mensaje = "Error al recuperar los datos del usuario.";
+            }
+        } catch (PDOException $e) {
+            $mensaje = "Error: " . $e->getMessage();
         }
     } else {
         $mensaje = "Por favor, seleccione exactamente un usuario para modificar.";
     }       
 }
 
-// logica del Buscador y Listado
+// 3. Lógica del Buscador y Listado (SELECT general)
 $where = "";
 $busqueda = "";
-if (isset($_GET['buscar'])) {
+if (isset($_GET['buscar']) && !empty($_GET['buscar'])) {
     $busqueda = $_GET['buscar'];
-    $busqueda_segura = pg_escape_string($conectar, $busqueda);
-    $where = "WHERE nombre_usuario LIKE '%$busqueda_segura%' OR e_mail LIKE '%$busqueda_segura%' OR tipo_usuario LIKE '%$busqueda_segura%'";
+    $term = $conn->quote('%' . $busqueda . '%');
+    $where = "WHERE nombre_usuario LIKE $term OR e_mail LIKE $term OR tipo_usuario LIKE $term";
 }
 
-$sql_lista = "SELECT * FROM usuarios $where";
-$consulta = pg_query($conectar, $sql_lista);
+try {
+    $sql_lista = "SELECT * FROM usuarios $where ORDER BY id_usuario ASC";
+    $consulta = $conn->query($sql_lista);
+    $resultados = $consulta->fetchAll(PDO::FETCH_ASSOC);
+} catch (PDOException $e) {
+    $mensaje = "Error al cargar la lista: " . $e->getMessage();
+}
 ?>
 
 <!DOCTYPE html>
@@ -68,78 +80,66 @@ $consulta = pg_query($conectar, $sql_lista);
     <?php endif; ?>
 
     <?php if (!$mostrar_lista && isset($usuario)): ?>
-
         <h3>Editar Datos del Usuario</h3>
         <form method="post" action="ModificarUsuario.php">
             <input type="hidden" name="id_usuario" value="<?php echo $usuario['id_usuario']; ?>">
 
             <label>Nombre Usuario</label><br>
-            <input type="text" name="nombre_usuario" value="<?php echo $usuario['nombre_usuario']; ?>" required><br><br>
+            <input type="text" name="nombre_usuario" value="<?php echo htmlspecialchars($usuario['nombre_usuario']); ?>" required><br><br>
 
             <label>Contraseña</label><br>
-            <input type="text" name="contraseña" value="<?php echo $usuario['contraseña']; ?>" required><br><br>
+            <input type="text" name="contraseña" value="<?php echo htmlspecialchars($usuario['contraseña']); ?>" required><br><br>
 
-            <label>E Mail</label><br>
-            <input type="text" name="e_mail" value="<?php echo $usuario['e_mail']; ?>" required><br><br>
+            <label>E-Mail</label><br>
+            <input type="email" name="e_mail" value="<?php echo htmlspecialchars($usuario['e_mail']); ?>" required><br><br>
 
-            
             <label>Tipo Usuario</label><br>
-            <select id="tipo_usuario" name="tipo_usuario">
-                <option value="0" <?php if($usuario ['tipo_usuario']==0) echo 'selected'?>> Seleccione una opcion </option> 
-                <option value="1" <?php if($usuario ['tipo_usuario']==1) echo 'selected'?>> Administrador </option>
-                <option value="2" <?php if($usuario ['tipo_usuario']==2) echo 'selected'?>> Lector </option>
-                <option value="3" <?php if($usuario ['tipo_usuario']==3) echo 'selected'?>> Editor </option>
-                </select>
-                <input type="submit" name="guardar" value="Guardar Cambios">
+            <input type="text" name="tipo_usuario" value="<?php echo htmlspecialchars($usuario['tipo_usuario']); ?>" required><br><br>
+
+            <input type="submit" name="guardar" value="Guardar Cambios">
             <a href="ModificarUsuario.php"><button type="button">Cancelar</button></a>
         </form>
 
     <?php else: ?>
-
         <form method="get" action="ModificarUsuario.php">
-            <input type="text" name="buscar" value="<?php echo htmlspecialchars($busqueda); ?>" placeholder="Buscar por nombre o tipo de usuario">
-            <input type="submit" values="Buscar">
+            <input type="text" name="buscar" value="<?php echo htmlspecialchars($busqueda); ?>" placeholder="Buscar por nombre o tipo">
+            <input type="submit" value="Buscar">
             <a href="ModificarUsuario.php"><button type="button">Ver Todos</button></a>
         </form>
         <br>
 
         <form method="post" action="ModificarUsuario.php">
-        <table border="1">
-            <tr>
-            <th>Sel</th>   
-            <th>ID</th>
-            <th>Nombre Usuario</th>
-            <th>Contraseña</th>
-            <th>E Mail</th>
-            <th>Tipo Usuario</th>
-            </tr>
-            <?php
-            if (pg_num_rows($consulta) > 0) {
-                while ($columna = pg_fetch_array($consulta)) {
-                    echo "<tr>";
-                    echo "<td><input type=\"checkbox\" name=\"ids[]\" value=\"" . $columna['id_usuario'] . "\"></td>";
-                    echo "<td>" . $columna['id_usuario'] . "</td>";
-                    echo "<td>" . $columna['nombre_usuario'] . "</td>";
-                    echo "<td>" . $columna['contraseña'] . "</td>";
-                    echo "<td>" . $columna['e_mail'] . "</td>";
-                    echo "<td>" . $columna['tipo_usuario'] . "</td>";
-                    echo "</tr>";
-                }
-            } else {
-                echo "<tr><td colspan='9'>No se encontraron registros.</td></tr>";
-            }
-            ?>
-        </table>
-        <br>
-        <input type="submit" name="modificar" value="Modificar Seleccionado">
+            <table border="1">
+                <tr>
+                    <th>Sel</th>   
+                    <th>ID</th>
+                    <th>Nombre Usuario</th>
+                    <th>Contraseña</th>
+                    <th>E-Mail</th>
+                    <th>Tipo Usuario</th>
+                </tr>
+                <?php if (count($resultados) > 0): ?>
+                    <?php foreach ($resultados as $columna): ?>
+                        <tr>
+                            <td><input type="checkbox" name="ids[]" value="<?php echo $columna['id_usuario']; ?>"></td>
+                            <td><?php echo $columna['id_usuario']; ?></td>
+                            <td><?php echo $columna['nombre_usuario']; ?></td>
+                            <td><?php echo $columna['contraseña']; ?></td>
+                            <td><?php echo $columna['e_mail']; ?></td>
+                            <td><?php echo $columna['tipo_usuario']; ?></td>
+                        </tr>
+                    <?php endforeach; ?>
+                <?php else: ?>
+                    <tr><td colspan="6">No se encontraron registros.</td></tr>
+                <?php endif; ?>
+            </table>
+            <br>
+            <input type="submit" name="modificar" value="Modificar Seleccionado">
         </form>
     <?php endif; ?>
 
     <br>
-    <a href="MostrarUsuario.php">Volver a lista de usuarios</a> | <a href="AdicionarUsuario.php">Adicionar</a> | <a href="EliminarUsuario.php">Eliminar</a>
+    <a href="MostrarUsuario.php">Volver a lista</a> | <a href="AdicionarUsuario.php">Adicionar</a> | <a href="EliminarUsuario.php">Eliminar</a>
 </body>
 </html>
-       
-<?php
-pg_close($conectar);
-?>
+<?php $conn = null; ?>
